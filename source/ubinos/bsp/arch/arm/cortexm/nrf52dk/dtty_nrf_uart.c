@@ -47,6 +47,11 @@ uint8_t _g_dtty_nrf_uart_tx_busy = 0;
 sem_pt _g_dtty_nrf_uart_rsem = NULL;
 sem_pt _g_dtty_nrf_uart_wsem = NULL;
 
+mutex_pt _g_dtty_uart_putlock = NULL;
+mutex_pt _g_dtty_uart_getlock = NULL;
+
+static int _dtty_getc_advan(char *ch_p, int blocked);
+
 static void dtty_nrf_uart_event_handler(nrf_drv_uart_event_t *p_event, void *p_context)
 {
     int need_signal = 0;
@@ -131,6 +136,10 @@ int dtty_init(void)
         assert(r == 0);
         r = semb_create(&_g_dtty_nrf_uart_wsem);
         assert(r == 0);
+        r = mutex_create(&_g_dtty_uart_putlock);
+        assert(r == 0);
+        r = mutex_create(&_g_dtty_uart_getlock);
+        assert(r == 0);
 
         _g_bsp_dtty_echo = 1;
         _g_bsp_dtty_autocr = 1;
@@ -178,76 +187,124 @@ int dtty_geterror(void)
     return 0;
 }
 
-int dtty_getc(char *ch_p)
+static int _dtty_getc_advan(char *ch_p, int blocked)
 {
+    int r;
     ubi_err_t ubi_err;
 
-    if (!_g_bsp_dtty_init)
+    r = -1;
+    do
     {
-        dtty_init();
-    }
-
-    if (_g_bsp_dtty_init && !bsp_isintr())
-    {
-        for (;;)
+        if (bsp_isintr())
         {
-            ubi_err = cbuf_read(_g_dtty_nrf_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
-            if (ubi_err == UBI_ERR_OK)
-            {
-                break;
-            }
-            else
-            {
-                sem_take(_g_dtty_nrf_uart_rsem);
-            }
+            break;
         }
-    }
 
-    if (0 != _g_bsp_dtty_echo)
-    {
-        dtty_putc(*ch_p);
-    }
+        if (!blocked)
+        {
+            r = mutex_lock_timed(_g_dtty_uart_getlock, 0);
+        }
+        else
+        {
+            r = mutex_lock(_g_dtty_uart_getlock);
+        }
+        if (r != 0)
+        {
+            break;
+        }
 
-    return 0;
+        do
+        {
+            if (!_g_bsp_dtty_init)
+            {
+                dtty_init();
+                if (!_g_bsp_dtty_init)
+                {
+                    break;
+                }
+            }
+
+            for (;;)
+            {
+                ubi_err = cbuf_read(_g_dtty_nrf_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
+                if (ubi_err == UBI_ERR_OK)
+                {
+                    r = 0;
+                    break;
+                }
+                else
+                {
+                    sem_take(_g_dtty_nrf_uart_rsem);
+                }
+            }
+
+            if (0 == r && 0 != _g_bsp_dtty_echo)
+            {
+                dtty_putc(*ch_p);
+            }
+
+            break;
+        } while (1);
+
+        mutex_unlock(_g_dtty_uart_getlock);
+        break;
+    } while (1);
+
+    return r;
+}
+
+int dtty_getc(char *ch_p)
+{
+    return _dtty_getc_advan(ch_p, 1);
+}
+
+int dtty_getc_unblocked(char *ch_p)
+{
+    return _dtty_getc_advan(ch_p, 0);
 }
 
 int dtty_putc(int ch)
 {
-    uint32_t written;
+    int r;
     uint8_t * buf;
     size_t len;
+    uint32_t written;
     uint8_t data[2];
-    int ret;
 
-    if (!_g_bsp_dtty_init)
+    r = -1;
+    if (!bsp_isintr())
     {
-        dtty_init();
-    }
+        mutex_lock(_g_dtty_uart_putlock);
 
-    ret = 0;
-    do
-    {
-        if (0 != _g_bsp_dtty_autocr && '\n' == ch)
+        do
         {
-            data[0] = '\r';
-            data[1] = '\n';
-            len = 2;
-        }
-        else
-        {
-            data[0] = (uint8_t) ch;
-            len = 1;
-        }
+            if (!_g_bsp_dtty_init)
+            {
+                dtty_init();
+                if (!_g_bsp_dtty_init)
+                {
+                    break;
+                }
+            }
 
-        cbuf_write(_g_dtty_nrf_uart_wbuf, data, len, &written);
-        if (written == 0)
-        {
-            break;
-        }
-        ret = 1;
+            if (0 != _g_bsp_dtty_autocr && '\n' == ch)
+            {
+                data[0] = '\r';
+                data[1] = '\n';
+                len = 2;
+            }
+            else
+            {
+                data[0] = (uint8_t) ch;
+                len = 1;
+            }
 
-        if (_g_bsp_dtty_init && !bsp_isintr())
-        {
+            cbuf_write(_g_dtty_nrf_uart_wbuf, data, len, &written);
+            if (written == 0)
+            {
+                break;
+            }
+
             if (!_g_dtty_nrf_uart_tx_busy)
             {
                 buf = cbuf_get_head_addr(_g_dtty_nrf_uart_wbuf);
@@ -267,10 +324,14 @@ int dtty_putc(int ch)
                 }
             }
 
-        }
-    } while (0);
+            r = 0;
+            break;
+        } while (1);
 
-    return ret;
+        mutex_unlock(_g_dtty_uart_putlock);
+    }
+
+    return r;
 }
 
 int dtty_flush(void)
