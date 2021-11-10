@@ -200,6 +200,15 @@ static int _dtty_getc_advan(char *ch_p, int blocked)
             break;
         }
 
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
+        }
+
         if (!blocked)
         {
             r = mutex_lock_timed(_g_dtty_uart_getlock, 0);
@@ -213,40 +222,27 @@ static int _dtty_getc_advan(char *ch_p, int blocked)
             break;
         }
 
-        do
+        for (;;)
         {
-            if (!_g_bsp_dtty_init)
+            ubi_err = cbuf_read(_g_dtty_nrf_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
+            if (ubi_err == UBI_ERR_OK)
             {
-                dtty_init();
-                if (!_g_bsp_dtty_init)
-                {
-                    break;
-                }
+                r = 0;
+                break;
             }
-
-            for (;;)
+            else
             {
-                ubi_err = cbuf_read(_g_dtty_nrf_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
-                if (ubi_err == UBI_ERR_OK)
-                {
-                    r = 0;
-                    break;
-                }
-                else
-                {
-                    sem_take(_g_dtty_nrf_uart_rsem);
-                }
+                sem_take(_g_dtty_nrf_uart_rsem);
             }
+        }
 
-            if (0 == r && 0 != _g_bsp_dtty_echo)
-            {
-                dtty_putc(*ch_p);
-            }
-
-            break;
-        } while (1);
+        if (0 == r && 0 != _g_bsp_dtty_echo)
+        {
+            dtty_putc(*ch_p);
+        }
 
         mutex_unlock(_g_dtty_uart_getlock);
+
         break;
     } while (1);
 
@@ -272,21 +268,26 @@ int dtty_putc(int ch)
     uint8_t data[2];
 
     r = -1;
-    if (!bsp_isintr())
+    do
     {
+        if (bsp_isintr())
+        {
+            break;
+        }
+
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
+        }
+
         mutex_lock(_g_dtty_uart_putlock);
 
         do
         {
-            if (!_g_bsp_dtty_init)
-            {
-                dtty_init();
-                if (!_g_bsp_dtty_init)
-                {
-                    break;
-                }
-            }
-
             if (0 != _g_bsp_dtty_autocr && '\n' == ch)
             {
                 data[0] = '\r';
@@ -329,7 +330,10 @@ int dtty_putc(int ch)
         } while (1);
 
         mutex_unlock(_g_dtty_uart_putlock);
-    }
+
+        r = 0;
+        break;
+    } while (1);
 
     return r;
 }
