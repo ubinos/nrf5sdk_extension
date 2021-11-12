@@ -30,6 +30,7 @@
 #define SLEEP_TIMEMS	1
 
 extern int _g_bsp_dtty_init;
+extern int _g_bsp_dtty_in_init;
 extern int _g_bsp_dtty_echo;
 extern int _g_bsp_dtty_autocr;
 
@@ -109,8 +110,10 @@ int dtty_init(void)
     int r;
     ret_code_t err_code;
 
-    if (!_g_bsp_dtty_init && !bsp_isintr() && _bsp_kernel_active)
+    if (!_g_bsp_dtty_init && !_g_bsp_dtty_in_init && !bsp_isintr() && _bsp_kernel_active)
     {
+        _g_bsp_dtty_in_init = 1;
+
         r = semb_create(&_g_dtty_nrf_libuarte_read_sem);
         assert(r == 0);
 
@@ -133,6 +136,8 @@ int dtty_init(void)
         nrf_libuarte_async_enable(&_g_dtty_nrf_libuarte);
 
         _g_bsp_dtty_init = 1;
+
+        _g_bsp_dtty_in_init = 0;
     }
 
     return 0;
