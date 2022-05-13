@@ -317,19 +317,21 @@ static void conn_params_init(void)
  *
  * @note This function will not return.
  */
-static void sleep_mode_enter(void)
-{
-    uint32_t err_code = bsp_indication_set(BSP_INDICATE_IDLE);
-    APP_ERROR_CHECK(err_code);
+// static void sleep_mode_enter(void)
+// {
+//     uint32_t err_code;
 
-    // Prepare wakeup buttons.
-    err_code = bsp_btn_ble_sleep_mode_prepare();
-    APP_ERROR_CHECK(err_code);
+//     // err_code = bsp_indication_set(BSP_INDICATE_IDLE);
+//     // APP_ERROR_CHECK(err_code);
 
-    // Go to system-off mode (this function will not return; wakeup will cause a reset).
-    err_code = sd_power_system_off();
-    APP_ERROR_CHECK(err_code);
-}
+//     // // Prepare wakeup buttons.
+//     // err_code = bsp_btn_ble_sleep_mode_prepare();
+//     // APP_ERROR_CHECK(err_code);
+
+//     // Go to system-off mode (this function will not return; wakeup will cause a reset).
+//     err_code = sd_power_system_off();
+//     APP_ERROR_CHECK(err_code);
+// }
 
 /**@brief Function for handling advertising events.
  *
@@ -339,16 +341,16 @@ static void sleep_mode_enter(void)
  */
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 {
-    uint32_t err_code;
+    // uint32_t err_code;
 
     switch (ble_adv_evt)
     {
         case BLE_ADV_EVT_FAST:
-            err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
-            APP_ERROR_CHECK(err_code);
+            // err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
+            // APP_ERROR_CHECK(err_code);
             break;
         case BLE_ADV_EVT_IDLE:
-            sleep_mode_enter();
+            // sleep_mode_enter();
             break;
         default:
             break;
@@ -368,8 +370,8 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
     {
         case BLE_GAP_EVT_CONNECTED:
             NRF_LOG_INFO("Connected");
-            err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
-            APP_ERROR_CHECK(err_code);
+            // err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
+            // APP_ERROR_CHECK(err_code);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
@@ -489,7 +491,7 @@ void bsp_event_handler(bsp_event_t event)
     switch (event)
     {
         case BSP_EVENT_SLEEP:
-            sleep_mode_enter();
+            // sleep_mode_enter();
             break;
 
         case BSP_EVENT_DISCONNECT:
@@ -778,11 +780,19 @@ int dtty_putc(int ch)
                 }
             }
 
-            if (0 != _g_bsp_dtty_autocr && '\n' == ch)
+            if ('\n' == ch)
             {
-                data[0] = '\r';
-                data[1] = '\n';
-                len = 2;
+                if (0 != _g_bsp_dtty_autocr)
+                {
+                    data[0] = '\r';
+                    data[1] = '\n';
+                    len = 2;
+                }
+                else
+                {
+                    data[0] = '\n';
+                    len = 1;
+                }
                 _g_dtty_uart_need_to_send = 1;
             }
             else
@@ -797,6 +807,13 @@ int dtty_putc(int ch)
                 _g_dtty_nrf_uart_tx_overflow_count++;
                 break;
             }
+
+            //
+            if (cbuf_get_len(_g_dtty_nrf_uart_wbuf) == len)
+            {
+                _g_dtty_uart_need_to_send = 1;
+            }
+            //
 
             if (_g_dtty_uart_need_to_send)
             {
