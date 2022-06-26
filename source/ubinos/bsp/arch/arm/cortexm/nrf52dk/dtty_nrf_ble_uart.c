@@ -36,11 +36,8 @@ extern int _g_bsp_dtty_in_init;
 extern int _g_bsp_dtty_echo;
 extern int _g_bsp_dtty_autocr;
 
-#define DTTY_NRF_BLE_UART_READ_BUFFER_SIZE (512)
-#define DTTY_NRF_BLE_UART_WRITE_BUFFER_SIZE (1024 * 10)
-
-cbuf_def_init(_g_dtty_nrf_uart_rbuf, DTTY_NRF_BLE_UART_READ_BUFFER_SIZE);
-cbuf_def_init(_g_dtty_nrf_uart_wbuf, DTTY_NRF_BLE_UART_WRITE_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_uart_rbuf, NRF5SDK__DTTY_NRF_BLE_UART_READ_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_uart_wbuf, NRF5SDK__DTTY_NRF_BLE_UART_WRITE_BUFFER_SIZE);
 
 uint32_t _g_dtty_nrf_uart_rx_overflow_count = 0;
 uint32_t _g_dtty_nrf_uart_tx_overflow_count = 0;

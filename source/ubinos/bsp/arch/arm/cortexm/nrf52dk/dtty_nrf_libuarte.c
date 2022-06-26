@@ -34,13 +34,10 @@ extern int _g_bsp_dtty_in_init;
 extern int _g_bsp_dtty_echo;
 extern int _g_bsp_dtty_autocr;
 
-#define DTTY_NRF_LIBUARTE_READ_BUFFER_SIZE (512)
-#define DTTY_NRF_LIBUARTE_WRITE_BUFFER_SIZE (1024 * 10)
-
 NRF_LIBUARTE_ASYNC_DEFINE(_g_dtty_nrf_libuarte, 0, 0, 0, NRF_LIBUARTE_PERIPHERAL_NOT_USED, 255, 3);
 
-cbuf_def_init(_g_dtty_nrf_libuarte_rbuf, DTTY_NRF_LIBUARTE_READ_BUFFER_SIZE);
-cbuf_def_init(_g_dtty_nrf_libuarte_wbuf, DTTY_NRF_LIBUARTE_WRITE_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_libuarte_rbuf, NRF5SDK__DTTY_NRF_LIBUARTE_READ_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_libuarte_wbuf, NRF5SDK__DTTY_NRF_LIBUARTE_WRITE_BUFFER_SIZE);
 
 uint8_t _g_dtty_nrf_libuarte_overflow = 0;
 uint8_t _g_dtty_nrf_libuarte_is_tx_busy = 0;
