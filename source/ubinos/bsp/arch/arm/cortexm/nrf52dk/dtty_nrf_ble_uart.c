@@ -36,19 +36,23 @@ extern int _g_bsp_dtty_in_init;
 extern int _g_bsp_dtty_echo;
 extern int _g_bsp_dtty_autocr;
 
-cbuf_def_init(_g_dtty_nrf_uart_rbuf, NRF5SDK__DTTY_NRF_BLE_UART_READ_BUFFER_SIZE);
-cbuf_def_init(_g_dtty_nrf_uart_wbuf, NRF5SDK__DTTY_NRF_BLE_UART_WRITE_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_ble_uart_rbuf, NRF5SDK__DTTY_NRF_BLE_UART_READ_BUFFER_SIZE);
+cbuf_def_init(_g_dtty_nrf_ble_uart_wbuf, NRF5SDK__DTTY_NRF_BLE_UART_WRITE_BUFFER_SIZE);
 
-uint32_t _g_dtty_nrf_uart_rx_overflow_count = 0;
-uint32_t _g_dtty_nrf_uart_tx_overflow_count = 0;
+uint32_t _g_dtty_nrf_ble_uart_rx_overflow_count = 0;
+uint32_t _g_dtty_nrf_ble_uart_tx_overflow_count = 0;
 
-sem_pt _g_dtty_nrf_uart_rsem = NULL;
-sem_pt _g_dtty_nrf_uart_wsem = NULL;
+sem_pt _g_dtty_nrf_ble_uart_rsem = NULL;
+sem_pt _g_dtty_nrf_ble_uart_wsem = NULL;
 
-mutex_pt _g_dtty_uart_putlock = NULL;
-mutex_pt _g_dtty_uart_getlock = NULL;
+mutex_pt _g_dtty_nrf_ble_uart_putlock = NULL;
+mutex_pt _g_dtty_nrf_ble_uart_getlock = NULL;
 
-uint8_t _g_dtty_uart_need_to_send = 0;
+static int _dtty_getc_advan(char *ch_p, int blocked);
+
+static void dtty_ble_func(void *arg);
+
+uint8_t _g_dtty_nrf_ble_uart_need_to_send = 0;
 
 ////
 //
@@ -279,8 +283,8 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
     ubi_err_t ubi_err;
     uint8_t need_signal = 0;
-    cbuf_pt rbuf = _g_dtty_nrf_uart_rbuf;
-    sem_pt rsem = _g_dtty_nrf_uart_rsem;
+    cbuf_pt rbuf = _g_dtty_nrf_ble_uart_rbuf;
+    sem_pt rsem = _g_dtty_nrf_ble_uart_rsem;
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
@@ -296,7 +300,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
             if (cbuf_is_full(rbuf))
             {
-                _g_dtty_nrf_uart_rx_overflow_count++;
+                _g_dtty_nrf_ble_uart_rx_overflow_count++;
                 break;
             }
 
@@ -309,7 +313,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
             if (ubi_err == UBI_ERR_BUF_FULL)
             {
-                _g_dtty_nrf_uart_rx_overflow_count++;
+                _g_dtty_nrf_ble_uart_rx_overflow_count++;
             }
 
             if (need_signal && _bsp_kernel_active)
@@ -427,7 +431,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
-            sem_give(_g_dtty_nrf_uart_wsem);
+            sem_give(_g_dtty_nrf_ble_uart_wsem);
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
@@ -530,9 +534,6 @@ static void power_management_init(void)
 //
 ////
 
-static int _dtty_getc_advan(char *ch_p, int blocked);
-static void dtty_ble_func(void *arg);
-
 void dtty_ble_func(void *arg)
 {
     uint8_t * buf;
@@ -541,14 +542,14 @@ void dtty_ble_func(void *arg)
 
     while(1)
     {
-        len = (uint16_t) min(BLE_NUS_MAX_DATA_LEN, cbuf_get_contig_len(_g_dtty_nrf_uart_wbuf));
-        if (!_g_dtty_uart_need_to_send || m_conn_handle == BLE_CONN_HANDLE_INVALID || len <= 0)
+        len = (uint16_t) min(BLE_NUS_MAX_DATA_LEN, cbuf_get_contig_len(_g_dtty_nrf_ble_uart_wbuf));
+        if (!_g_dtty_nrf_ble_uart_need_to_send || m_conn_handle == BLE_CONN_HANDLE_INVALID || len <= 0)
         {
-            sem_take(_g_dtty_nrf_uart_wsem);
+            sem_take(_g_dtty_nrf_ble_uart_wsem);
             continue;
         }
 
-        buf = cbuf_get_head_addr(_g_dtty_nrf_uart_wbuf);
+        buf = cbuf_get_head_addr(_g_dtty_nrf_ble_uart_wbuf);
 
         err_code = ble_nus_data_send(&m_nus, (uint8_t *) buf, &len, m_conn_handle);
         if ((err_code != NRF_ERROR_INVALID_STATE) &&
@@ -560,10 +561,10 @@ void dtty_ble_func(void *arg)
 
         if (err_code == NRF_SUCCESS)
         {
-            cbuf_read(_g_dtty_nrf_uart_wbuf, NULL, len, NULL);
-            if (cbuf_get_contig_len(_g_dtty_nrf_uart_wbuf) <= 0)
+            cbuf_read(_g_dtty_nrf_ble_uart_wbuf, NULL, len, NULL);
+            if (cbuf_get_contig_len(_g_dtty_nrf_ble_uart_wbuf) <= 0)
             {
-                _g_dtty_uart_need_to_send = 0;
+                _g_dtty_nrf_ble_uart_need_to_send = 0;
             }
         }
         else
@@ -578,17 +579,32 @@ int dtty_init(void)
     int r;
     (void) r;
 
-    if (!_g_bsp_dtty_init && !_g_bsp_dtty_in_init && !bsp_isintr() && _bsp_kernel_active)
+    do
     {
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            break;
+        }
+
+        if (!_bsp_kernel_active)
+        {
+            break;
+        }
+
+        if (_g_bsp_dtty_init || _g_bsp_dtty_in_init)
+        {
+            break;
+        }
+
         _g_bsp_dtty_in_init = 1;
 
-        r = semb_create(&_g_dtty_nrf_uart_rsem);
+        r = semb_create(&_g_dtty_nrf_ble_uart_rsem);
         assert(r == 0);
-        r = semb_create(&_g_dtty_nrf_uart_wsem);
+        r = semb_create(&_g_dtty_nrf_ble_uart_wsem);
         assert(r == 0);
-        r = mutex_create(&_g_dtty_uart_putlock);
+        r = mutex_create(&_g_dtty_nrf_ble_uart_putlock);
         assert(r == 0);
-        r = mutex_create(&_g_dtty_uart_getlock);
+        r = mutex_create(&_g_dtty_nrf_ble_uart_getlock);
         assert(r == 0);
 
         _g_bsp_dtty_echo = 1;
@@ -612,8 +628,12 @@ int dtty_init(void)
 
         _g_bsp_dtty_init = 1;
 
+        cbuf_clear(_g_dtty_nrf_ble_uart_rbuf);
+
         _g_bsp_dtty_in_init = 0;
-    }
+
+        break;
+    } while (1);
 
     return 0;
 }
@@ -641,7 +661,7 @@ static int _dtty_getc_advan(char *ch_p, int blocked)
     r = -1;
     do
     {
-        if (bsp_isintr())
+        if (bsp_isintr() || 0 != _bsp_critcount)
         {
             break;
         }
@@ -657,42 +677,45 @@ static int _dtty_getc_advan(char *ch_p, int blocked)
 
         if (!blocked)
         {
-            r = mutex_lock_timed(_g_dtty_uart_getlock, 0);
+            r = mutex_lock_timed(_g_dtty_nrf_ble_uart_getlock, 0);
         }
         else
         {
-            r = mutex_lock(_g_dtty_uart_getlock);
+            r = mutex_lock(_g_dtty_nrf_ble_uart_getlock);
         }
         if (r != 0)
         {
             break;
         }
 
-        do
+        for (;;)
         {
-            for (;;)
+            ubi_err = cbuf_read(_g_dtty_nrf_ble_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
+            if (ubi_err == UBI_ERR_OK)
             {
-                ubi_err = cbuf_read(_g_dtty_nrf_uart_rbuf, (uint8_t*) ch_p, 1, NULL);
-                if (ubi_err == UBI_ERR_OK)
+                r = 0;
+                break;
+            }
+            else
+            {
+                if (!blocked)
                 {
-                    r = 0;
                     break;
                 }
                 else
                 {
-                    sem_take(_g_dtty_nrf_uart_rsem);
+                    sem_take(_g_dtty_nrf_ble_uart_rsem);
                 }
             }
+        }
 
-            if (0 == r && 0 != _g_bsp_dtty_echo)
-            {
-                dtty_putc(*ch_p);
-            }
+        if (0 == r && 0 != _g_bsp_dtty_echo)
+        {
+            dtty_putc(*ch_p);
+        }
 
-            break;
-        } while (1);
+        mutex_unlock(_g_dtty_nrf_ble_uart_getlock);
 
-        mutex_unlock(_g_dtty_uart_getlock);
         break;
     } while (1);
 
@@ -717,21 +740,26 @@ int dtty_putc(int ch)
     uint8_t data[2];
 
     r = -1;
-    if (!bsp_isintr())
+    do
     {
-        mutex_lock(_g_dtty_uart_putlock);
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            break;
+        }
+
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
+        }
+
+        mutex_lock(_g_dtty_nrf_ble_uart_putlock);
 
         do
         {
-            if (!_g_bsp_dtty_init)
-            {
-                dtty_init();
-                if (!_g_bsp_dtty_init)
-                {
-                    break;
-                }
-            }
-
             if ('\n' == ch)
             {
                 if (0 != _g_bsp_dtty_autocr)
@@ -745,7 +773,7 @@ int dtty_putc(int ch)
                     data[0] = '\n';
                     len = 1;
                 }
-                _g_dtty_uart_need_to_send = 1;
+                _g_dtty_nrf_ble_uart_need_to_send = 1;
             }
             else
             {
@@ -753,31 +781,33 @@ int dtty_putc(int ch)
                 len = 1;
             }
 
-            cbuf_write(_g_dtty_nrf_uart_wbuf, data, len, &written);
+            cbuf_write(_g_dtty_nrf_ble_uart_wbuf, data, len, &written);
             if (written == 0)
             {
-                _g_dtty_nrf_uart_tx_overflow_count++;
+                _g_dtty_nrf_ble_uart_tx_overflow_count++;
                 break;
             }
 
             //
-            if (cbuf_get_len(_g_dtty_nrf_uart_wbuf) == len)
+            if (cbuf_get_len(_g_dtty_nrf_ble_uart_wbuf) == len)
             {
-                _g_dtty_uart_need_to_send = 1;
+                _g_dtty_nrf_ble_uart_need_to_send = 1;
             }
             //
 
-            if (_g_dtty_uart_need_to_send)
+            if (_g_dtty_nrf_ble_uart_need_to_send)
             {
-                sem_give(_g_dtty_nrf_uart_wsem);
+                sem_give(_g_dtty_nrf_ble_uart_wsem);
             }
 
             r = 0;
             break;
         } while (1);
 
-        mutex_unlock(_g_dtty_uart_putlock);
-    }
+        mutex_unlock(_g_dtty_nrf_ble_uart_putlock);
+
+        break;
+    } while (1);
 
     return r;
 }
@@ -789,46 +819,71 @@ int dtty_flush(void)
 
 int dtty_putn(const char *str, int len)
 {
-    int i = 0;
+    int r;
 
-    if (!_g_bsp_dtty_init)
+    r = -1;
+    do
     {
-        dtty_init();
-    }
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            break;
+        }
 
-    if (_g_bsp_dtty_init && !bsp_isintr())
-    {
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
+        }
+
         if (NULL == str)
         {
-            return -2;
+            r = -2;
+            break;
         }
 
         if (0 > len)
         {
-            return -3;
+            r = -3;
+            break;
         }
 
-        for (i = 0; i < len; i++)
+        for (r = 0; r < len; r++)
         {
             dtty_putc(*str);
             str++;
         }
-    }
-    return i;
+
+        break;
+    } while (1);
+
+    return r;
 }
 
 int dtty_kbhit(void)
 {
-    int r = 0;
+    int r;
 
-    if (!_g_bsp_dtty_init)
+    r = -1;
+    do
     {
-        dtty_init();
-    }
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            break;
+        }
 
-    if (_g_bsp_dtty_init && !bsp_isintr())
-    {
-        if (cbuf_get_len(_g_dtty_nrf_uart_rbuf) != 0)
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
+        }
+
+        if (cbuf_get_len(_g_dtty_nrf_ble_uart_rbuf) != 0)
         {
             r = 1;
         }
@@ -836,7 +891,9 @@ int dtty_kbhit(void)
         {
             r = 0;
         }
-    }
+
+        break;
+    } while (1);
 
     return r;
 }
