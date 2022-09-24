@@ -136,6 +136,18 @@ static ble_gap_adv_data_t m_adv_data =
     }
 };
 
+static void conn_evt_len_ext_set(bool status)
+{
+    ret_code_t err_code;
+    ble_opt_t  opt;
+
+    memset(&opt, 0x00, sizeof(opt));
+    opt.common_opt.conn_evt_ext.enable = status ? 1 : 0;
+
+    err_code = sd_ble_opt_set(BLE_COMMON_OPT_CONN_EVT_EXT, &opt);
+    APP_ERROR_CHECK(err_code);
+}
+
 /**@brief Function for assert macro callback.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -256,6 +268,9 @@ static void advertising_init(void)
     adv_params.interval        = APP_ADV_INTERVAL;
 
     err_code = sd_ble_gap_adv_set_configure(&m_adv_handle, &m_adv_data, &adv_params);
+    APP_ERROR_CHECK(err_code);
+    
+    err_code = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_ADV, m_adv_handle, 8);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -431,6 +446,10 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
+
+            err_code = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_CONN, m_conn_handle, 8);
+            APP_ERROR_CHECK(err_code);
+                        
             sem_give(_g_dtty_nrf_ble_uart_wsem);
             break;
 
@@ -446,8 +465,8 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             NRF_LOG_DEBUG("PHY update request.");
             ble_gap_phys_t const phys =
             {
-                .rx_phys = BLE_GAP_PHY_AUTO,
-                .tx_phys = BLE_GAP_PHY_AUTO,
+                .rx_phys = BLE_GAP_PHY_2MBPS,
+                .tx_phys = BLE_GAP_PHY_2MBPS,
             };
             err_code = sd_ble_gap_phy_update(p_ble_evt->evt.gap_evt.conn_handle, &phys);
             APP_ERROR_CHECK(err_code);
@@ -620,6 +639,7 @@ int dtty_init(void)
         services_init();
         advertising_init();
         conn_params_init();
+        conn_evt_len_ext_set(1);
 
         advertising_start();
 
