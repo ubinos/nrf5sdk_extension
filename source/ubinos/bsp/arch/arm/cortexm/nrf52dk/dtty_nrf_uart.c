@@ -36,6 +36,8 @@ extern int _g_bsp_dtty_autocr;
 
 static nrf_drv_uart_t _g_dtty_nrf_uart = NRF_DRV_UART_INSTANCE(0);
 
+cbuf_def_init(_g_dtty_nrf_isr_wbuf, NRF5SDK__DTTY_NRF_ISR_WRITE_BUFFER_SIZE);
+
 cbuf_def_init(_g_dtty_nrf_uart_rbuf, NRF5SDK__DTTY_NRF_UART_READ_BUFFER_SIZE);
 cbuf_def_init(_g_dtty_nrf_uart_wbuf, NRF5SDK__DTTY_NRF_UART_WRITE_BUFFER_SIZE);
 
@@ -172,7 +174,7 @@ int dtty_init(void)
         _g_bsp_dtty_init = 1;
 
         cbuf_clear(_g_dtty_nrf_uart_rbuf);
-        
+
         buf = cbuf_get_tail_addr(_g_dtty_nrf_uart_rbuf);
         len = 1;
         nrf_drv_uart_rx(&_g_dtty_nrf_uart, buf, len);
@@ -292,6 +294,11 @@ int dtty_putc(int ch)
     {
         if (bsp_isintr() || 0 != _bsp_critcount)
         {
+            data[0] = (uint8_t) ch;
+            len = 1;
+            cbuf_write(_g_dtty_nrf_isr_wbuf, data, len, &written);
+
+            r = 0;
             break;
         }
 
@@ -365,24 +372,11 @@ int dtty_flush(void)
 int dtty_putn(const char *str, int len)
 {
     int r;
+    uint32_t written;
 
     r = -1;
     do
     {
-        if (bsp_isintr() || 0 != _bsp_critcount)
-        {
-            break;
-        }
-
-        if (!_g_bsp_dtty_init)
-        {
-            dtty_init();
-            if (!_g_bsp_dtty_init)
-            {
-                break;
-            }
-        }
-
         if (NULL == str)
         {
             r = -2;
@@ -393,6 +387,22 @@ int dtty_putn(const char *str, int len)
         {
             r = -3;
             break;
+        }
+
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            cbuf_write(_g_dtty_nrf_isr_wbuf, (uint8_t *) str, len, &written);
+            r = written;
+            break;
+        }
+
+        if (!_g_bsp_dtty_init)
+        {
+            dtty_init();
+            if (!_g_bsp_dtty_init)
+            {
+                break;
+            }
         }
 
         for (r = 0; r < len; r++)
@@ -437,6 +447,36 @@ int dtty_kbhit(void)
             r = 0;
         }
 
+        break;
+    } while (1);
+
+    return r;
+}
+
+int dtty_isr_write_process(void)
+{
+    int r;
+    uint8_t * buf;
+    uint32_t len;
+    cbuf_pt wbuf = _g_dtty_nrf_isr_wbuf;
+
+    r = -1;
+    do
+    {
+        if (bsp_isintr() || 0 != _bsp_critcount)
+        {
+            break;
+        }
+
+        while (cbuf_get_len(wbuf) > 0)
+        {
+            buf = cbuf_get_head_addr(wbuf);
+            len = cbuf_get_contig_len(wbuf);
+            dtty_putn((const char *) buf, len);
+            cbuf_read(wbuf, NULL, len, NULL);
+        }
+
+        r = 0;
         break;
     } while (1);
 
