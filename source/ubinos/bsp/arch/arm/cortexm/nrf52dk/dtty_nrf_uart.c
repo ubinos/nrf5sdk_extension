@@ -37,11 +37,11 @@ extern int _g_bsp_dtty_autocr;
 static nrf_drv_uart_t _g_dtty_nrf_uart = NRF_DRV_UART_INSTANCE(0);
 
 cbuf_def_init(_g_dtty_nrf_isr_wbuf, NRF5SDK__DTTY_NRF_ISR_WRITE_BUFFER_SIZE);
-
 cbuf_def_init(_g_dtty_nrf_uart_rbuf, NRF5SDK__DTTY_NRF_UART_READ_BUFFER_SIZE);
 cbuf_def_init(_g_dtty_nrf_uart_wbuf, NRF5SDK__DTTY_NRF_UART_WRITE_BUFFER_SIZE);
 
 uint32_t _g_dtty_nrf_uart_rx_overflow_count = 0;
+uint32_t _g_dtty_nrf_uart_tx_overflow_count = 0;
 uint8_t _g_dtty_nrf_uart_tx_busy = 0;
 
 sem_pt _g_dtty_nrf_uart_rsem = NULL;
@@ -56,6 +56,7 @@ static void dtty_nrf_uart_event_handler(nrf_drv_uart_event_t *p_event, void *p_c
     int need_signal = 0;
     uint8_t * buf;
     uint32_t len;
+    uint32_t written;
     nrf_drv_uart_t * uart = &_g_dtty_nrf_uart;
     cbuf_pt rbuf = _g_dtty_nrf_uart_rbuf;
     cbuf_pt wbuf = _g_dtty_nrf_uart_wbuf;
@@ -81,7 +82,11 @@ static void dtty_nrf_uart_event_handler(nrf_drv_uart_event_t *p_event, void *p_c
             }
 
             len = 1;
-            cbuf_write(rbuf, NULL, len, NULL);
+            cbuf_write(rbuf, NULL, len, &written);
+            if (written != len)
+            {
+                _g_dtty_nrf_uart_rx_overflow_count++;
+            }
 
             if (need_signal && _bsp_kernel_active)
             {
@@ -297,6 +302,10 @@ int dtty_putc(int ch)
             data[0] = (uint8_t) ch;
             len = 1;
             cbuf_write(_g_dtty_nrf_isr_wbuf, data, len, &written);
+            if (written != len)
+            {
+                _g_dtty_nrf_uart_tx_overflow_count++;
+            }
 
             r = 0;
             break;
@@ -315,6 +324,12 @@ int dtty_putc(int ch)
 
         do
         {
+            if (cbuf_is_full(_g_dtty_nrf_uart_wbuf))
+            {
+                _g_dtty_nrf_uart_tx_overflow_count++;
+                break;
+            }
+
             if (0 != _g_bsp_dtty_autocr && '\n' == ch)
             {
                 data[0] = '\r';
@@ -328,9 +343,9 @@ int dtty_putc(int ch)
             }
 
             cbuf_write(_g_dtty_nrf_uart_wbuf, data, len, &written);
-            if (written == 0)
+            if (written != len)
             {
-                break;
+                _g_dtty_nrf_uart_tx_overflow_count++;
             }
 
             if (!_g_dtty_nrf_uart_tx_busy)
@@ -392,6 +407,10 @@ int dtty_putn(const char *str, int len)
         if (bsp_isintr() || 0 != _bsp_critcount)
         {
             cbuf_write(_g_dtty_nrf_isr_wbuf, (uint8_t *) str, len, &written);
+            if (written != len)
+            {
+                _g_dtty_nrf_uart_tx_overflow_count++;
+            }
             r = written;
             break;
         }
