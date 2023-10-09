@@ -453,14 +453,12 @@ int dtty_kbhit(void)
     return r;
 }
 
-int dtty_isr_write_process(void)
+void dtty_isr_write_process(void *arg)
 {
-    int r;
     uint8_t * buf;
     uint32_t len;
     cbuf_pt wbuf = _g_dtty_nrf_isr_wbuf;
 
-    r = -1;
     do
     {
         if (bsp_isintr() || 0 != _bsp_critcount)
@@ -476,11 +474,8 @@ int dtty_isr_write_process(void)
             cbuf_read(wbuf, NULL, len, NULL);
         }
 
-        r = 0;
         break;
     } while (1);
-
-    return r;
 }
 
 #endif /* (NRF5SDK__DTTY_NRF_UART_ENABLE == 1) */
