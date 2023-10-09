@@ -453,7 +453,7 @@ int dtty_kbhit(void)
     return r;
 }
 
-void dtty_isr_write_process(void *arg)
+void dtty_write_process(void *arg)
 {
     uint8_t * buf;
     uint32_t len;

@@ -918,6 +918,10 @@ int dtty_kbhit(void)
     return r;
 }
 
+void dtty_write_process(void *arg)
+{
+}
+
 #endif /* (NRF5SDK__DTTY_NRF_BLE_UART_ENABLE == 1) */
 
 #endif /* (UBINOS__BSP__DTTY_TYPE == UBINOS__BSP__DTTY_TYPE__EXTERNAL) */
