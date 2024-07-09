@@ -69,7 +69,7 @@ ubi_err_t nvmem_erase(uint8_t *addr, size_t size)
 
     do
     {
-        if (addr < NVMEM_BASE)
+        if ((uint32_t) addr < NVMEM_BASE)
         {
             ubi_err = UBI_ERR_ERROR;
             break;
