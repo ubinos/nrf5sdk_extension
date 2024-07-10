@@ -32,6 +32,11 @@
 #include <nrfx.h>
 #include <nrfx_nvmc.h>
 
+#ifdef SOFTDEVICE_PRESENT
+#include "nrf_soc.h"
+#endif
+
+
 #undef LOGM_CATEGORY
 #define LOGM_CATEGORY LOGM_CATEGORY__NVMEM
 
@@ -66,6 +71,8 @@ ubi_err_t nvmem_erase(uint8_t *addr, size_t size)
     uint32_t page_addr;
     uint32_t page_size = nrfx_nvmc_flash_page_size_get();
     uint32_t end_page = nvmem_get_page((uint8_t *) ((uint32_t) addr + size - 1));
+    (void) page_addr;
+    (void) page_size;
 
     do
     {
@@ -83,8 +90,12 @@ ubi_err_t nvmem_erase(uint8_t *addr, size_t size)
         page = nvmem_get_page(addr);
         do
         {
+#ifdef SOFTDEVICE_PRESENT
+            sd_flash_page_erase(page);
+#else
             page_addr = NVMEM_BASE + (page * page_size);
             nrf_nvmc_page_erase(page_addr);
+#endif
             page++;
             if (page > end_page)
             {
@@ -132,7 +143,11 @@ ubi_err_t nvmem_update(uint8_t *addr, const uint8_t *buf, size_t size)
             break;
         }
 
+#ifdef SOFTDEVICE_PRESENT
+        sd_flash_write((uint32_t *) fl_addr, (uint32_t *) page_cache, page_size);
+#else
         nrf_nvmc_write_bytes(fl_addr, page_cache, page_size);
+#endif
 
         dst_addr += len;
         src_addr += len;
