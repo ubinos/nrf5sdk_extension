@@ -32,10 +32,9 @@
 #include <nrfx.h>
 #include <nrfx_nvmc.h>
 
-#ifdef SOFTDEVICE_PRESENT
-#include "nrf_soc.h"
-#endif
-
+// #ifdef SOFTDEVICE_PRESENT
+// #include "nrf_soc.h"
+// #endif
 
 #undef LOGM_CATEGORY
 #define LOGM_CATEGORY LOGM_CATEGORY__NVMEM
@@ -73,6 +72,8 @@ ubi_err_t nvmem_erase(uint8_t *addr, size_t size)
     uint32_t end_page = nvmem_get_page((uint8_t *) ((uint32_t) addr + size - 1));
     (void) page_addr;
     (void) page_size;
+    uint32_t rv;
+    (void) rv;
 
     do
     {
@@ -90,12 +91,20 @@ ubi_err_t nvmem_erase(uint8_t *addr, size_t size)
         page = nvmem_get_page(addr);
         do
         {
-#ifdef SOFTDEVICE_PRESENT
-            sd_flash_page_erase(page);
-#else
+// #ifdef SOFTDEVICE_PRESENT
+//             do
+//             {
+//                 rv = sd_flash_page_erase(page);
+//                 if (rv != NRF_ERROR_BUSY)
+//                 {
+//                     break;
+//                 }
+//             } while (1);
+//             ubi_assert(rv == NRF_SUCCESS);
+// #else
             page_addr = NVMEM_BASE + (page * page_size);
             nrf_nvmc_page_erase(page_addr);
-#endif
+// #endif
             page++;
             if (page > end_page)
             {
@@ -120,6 +129,8 @@ ubi_err_t nvmem_update(uint8_t *addr, const uint8_t *buf, size_t size)
     int remaining = size;
     uint8_t * src_addr = (uint8_t *) buf;
     uint8_t * page_cache = (uint8_t*) malloc(page_size);
+    uint32_t rv;
+    (void) rv;
 
     if(page_cache == NULL)
     {
@@ -143,11 +154,19 @@ ubi_err_t nvmem_update(uint8_t *addr, const uint8_t *buf, size_t size)
             break;
         }
 
-#ifdef SOFTDEVICE_PRESENT
-        sd_flash_write((uint32_t *) fl_addr, (uint32_t *) page_cache, page_size);
-#else
+// #ifdef SOFTDEVICE_PRESENT
+//         do
+//         {
+//             rv = sd_flash_write((uint32_t *) fl_addr, (uint32_t *) page_cache, page_size / 4);
+//             if (rv != NRF_ERROR_BUSY)
+//             {
+//                 break;
+//             }
+//         } while (1);
+//         ubi_assert(rv == NRF_SUCCESS);
+// #else
         nrf_nvmc_write_bytes(fl_addr, page_cache, page_size);
-#endif
+// #endif
 
         dst_addr += len;
         src_addr += len;
